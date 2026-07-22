@@ -12,7 +12,7 @@ st.set_page_config(page_title="AI Калории", page_icon="🥗", layout="cen
 st.title("🥗 Сканер калорий")
 st.write("Загрузи фото блюда, проверь состав, учет скрытого сахара/масла и при необходимости скорректируй вес.")
 
-# Подключение к Gemini через официальный SDK
+# Инициализация клиента Google GenAI
 try:
     client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 except Exception as e:
@@ -46,7 +46,7 @@ if uploaded_file is not None:
     
     if st.button("🔍 Проанализировать фото", type="primary"):
         status_placeholder = st.empty()
-        status_placeholder.info("⏳ Анализируем фото с помощью Gemini...")
+        status_placeholder.info("⏳ Анализируем фото...")
         
         system_prompt = (
             "Ты — высококлассный эксперт-нутрициолог. "
@@ -66,16 +66,20 @@ if uploaded_file is not None:
         
         prompt = "Изучи фото еды. Определи продукты, учти скрытые жиры/соусы/сахар, укажи уверенность в процентах и что могло остаться незамеченным."
         
-        # Рабочая и самая стабильная модель для бесплатного тарифа
-        target_model = "gemini-1.5-flash"
+        # Перебираем поддерживаемые современные идентификаторы моделей SDK
+        models_to_try = [
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash-latest"
+        ]
         
         success = False
-        max_retries = 2
+        last_error = ""
         
-        for attempt in range(max_retries):
+        for model_id in models_to_try:
             try:
                 response = client.models.generate_content(
-                    model=target_model,
+                    model=model_id,
                     contents=[image, prompt],
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
@@ -92,21 +96,16 @@ if uploaded_file is not None:
                     success = True
                     status_placeholder.empty()
                     break
-                    
             except Exception as err:
-                err_msg = str(err)
-                if ("429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg) and attempt < max_retries - 1:
-                    status_placeholder.warning("⏳ Лимит частых запросов к бесплатной модели. Ждем 30 секунд для сброса лимита Google...")
-                    time.sleep(30)
-                    status_placeholder.info("🔄 Повторяем запрос к Gemini...")
-                    continue
-                else:
-                    status_placeholder.empty()
-                    if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
-                        st.warning("⚠️ Бесплатный дневной лимит API исчерпан. Подождите 1 минуту и нажмите кнопку снова.")
-                    else:
-                        st.error(f"Ошибка при подключении к Gemini: {err_msg}")
-                    break
+                last_error = str(err)
+                continue
+                
+        if not success:
+            status_placeholder.empty()
+            if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error:
+                st.warning("⏳ Лимит запросов превышен. Подождите 30–60 секунд и повторите попытку.")
+            else:
+                st.error(f"Ошибка при подключении к Gemini: {last_error}")
 
 # Отрисовка результатов и редактирование
 if st.session_state.food_items is not None:
