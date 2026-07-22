@@ -26,8 +26,8 @@ if uploaded_file is not None:
     if st.button("🔍 Рассчитать калории", type="primary"):
         with st.spinner("Идёт анализ..."):
             try:
-                # Используем стабильную модель 1.5-flash
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                # Имя модели с полным суффиксом для Vertex API
+                model = genai.GenerativeModel('gemini-1.5-flash-002')
                 
                 # Промпт для нейросети
                 prompt = """
