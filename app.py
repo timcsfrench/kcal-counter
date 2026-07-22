@@ -95,18 +95,19 @@ if uploaded_file is not None:
             }
         }
         
-        # Эндпоинты моделей (по списку приоритета)
+        # Актуальные стандартизированные имена моделей для API v1
         models_to_try = [
+            "gemini-2.0-flash",
             "gemini-1.5-flash",
-            "gemini-2.0-flash-exp",
-            "gemini-1.5-pro"
+            "gemini-2.5-flash"
         ]
         
         success = False
         last_error = ""
         
         for model in models_to_try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            # Используем стабильный эндпоинт v1 вместо v1beta
+            url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={api_key}"
             headers = {"Content-Type": "application/json"}
             
             try:
@@ -134,7 +135,7 @@ if uploaded_file is not None:
         if not success:
             status_placeholder.empty()
             if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error or "quota" in last_error.lower():
-                st.warning("⏳ Бесплатный лимит запросов исчерпан. Подождите 1 минуту и попробуйте снова.")
+                st.warning("⏳ Лимит запросов исчерпан. Подождите 30–60 секунд и повторите попытку.")
             else:
                 st.error(f"Ошибка API: {last_error}")
 
