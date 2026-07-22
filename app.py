@@ -34,29 +34,50 @@ if uploaded_file is not None:
             Будь максимально точен в оценке порций.
             """
             
-            try:
-                # Фильтруем только семейство Gemini (игнорируем Gemma)
-                all_models = [
-                    m.name for m in genai.list_models() 
-                    if 'generateContent' in m.supported_generation_methods and 'gemini' in m.name.lower()
-                ]
-                
-                success = False
-                
-                for model_name in all_models:
-                    try:
-                        model = genai.GenerativeModel(model_name)
-                        response = model.generate_content([image, prompt])
-                        
-                        st.success("Готово!")
-                        st.markdown(response.text)
-                        success = True
-                        break
-                    except Exception:
-                        continue
-                
-                if not success:
-                    st.error("Не удалось обработать изображение. Попробуйте еще раз.")
+            # Приоритетные быстрые модели в порядке очереди
+            priority_models = [
+                'models/gemini-1.5-flash-latest',
+                'models/gemini-1.5-flash',
+                'models/gemini-2.0-flash-exp',
+                'models/gemini-1.5-pro'
+            ]
+            
+            success = False
+            
+            # 1. Сначала пробуем самые быстрые известные модели
+            for model_name in priority_models:
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    response = model.generate_content([image, prompt])
+                    st.success("Готово!")
+                    st.markdown(response.text)
+                    success = True
+                    break
+                except Exception:
+                    continue
+            
+            # 2. Если ни одна из быстрых не ответила — ищем остаток среди всех доступных Gemini
+            if not success:
+                try:
+                    all_gemini = [
+                        m.name for m in genai.list_models() 
+                        if 'generateContent' in m.supported_generation_methods 
+                        and 'gemini' in m.name.lower()
+                    ]
+                    for model_name in all_gemini:
+                        if model_name in priority_models:
+                            continue # Пропускаем те, что уже проверяли
+                        try:
+                            model = genai.GenerativeModel(model_name)
+                            response = model.generate_content([image, prompt])
+                            st.success("Готово!")
+                            st.markdown(response.text)
+                            success = True
+                            break
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
 
-            except Exception as e:
-                st.error(f"Произошла ошибка при анализе: {e}")
+            if not success:
+                st.error("Не удалось подлючиться к модели. Попробуйте еще раз.")
