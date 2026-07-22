@@ -72,7 +72,6 @@ if uploaded_file is not None:
             "}"
         )
         
-        # REST Payload
         payload = {
             "system_instruction": {
                 "parts": [{"text": system_instruction}]
@@ -95,49 +94,35 @@ if uploaded_file is not None:
             }
         }
         
-        # Актуальные стандартизированные имена моделей для API v1
-        models_to_try = [
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-2.5-flash"
-        ]
+        # Единая актуальная модель
+        target_model = "gemini-2.0-flash"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
         
-        success = False
-        last_error = ""
-        
-        for model in models_to_try:
-            # Используем стабильный эндпоинт v1 вместо v1beta
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={api_key}"
-            headers = {"Content-Type": "application/json"}
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            res_data = response.json()
             
-            try:
-                response = requests.post(url, headers=headers, json=payload, timeout=30)
-                res_data = response.json()
+            if response.status_code == 200 and "candidates" in res_data:
+                raw_text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                data = parse_json_safely(raw_text)
                 
-                if response.status_code == 200 and "candidates" in res_data:
-                    raw_text = res_data["candidates"][0]["content"]["parts"][0]["text"]
-                    data = parse_json_safely(raw_text)
-                    
-                    st.session_state.food_items = data.get("items", [])
-                    st.session_state.confidence = data.get("confidence", 80)
-                    st.session_state.hidden_notes = data.get("hidden_notes", "")
-                    st.session_state.advice = data.get("advice", "")
-                    
-                    success = True
-                    status_placeholder.empty()
-                    break
-                else:
-                    last_error = res_data.get("error", {}).get("message", response.text)
-            except Exception as err:
-                last_error = str(err)
-                continue
+                st.session_state.food_items = data.get("items", [])
+                st.session_state.confidence = data.get("confidence", 80)
+                st.session_state.hidden_notes = data.get("hidden_notes", "")
+                st.session_state.advice = data.get("advice", "")
                 
-        if not success:
-            status_placeholder.empty()
-            if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error or "quota" in last_error.lower():
-                st.warning("⏳ Лимит запросов исчерпан. Подождите 30–60 секунд и повторите попытку.")
+                status_placeholder.empty()
             else:
-                st.error(f"Ошибка API: {last_error}")
+                status_placeholder.empty()
+                err_msg = res_data.get("error", {}).get("message", response.text)
+                if "429" in str(response.status_code) or "RESOURCE_EXHAUSTED" in err_msg or "quota" in err_msg.lower():
+                    st.warning("⏳ Превышен лимит запросов к бесплатной модели. Подождите 30 секунд и нажмите кнопку снова.")
+                else:
+                    st.error(f"Ошибка API ({response.status_code}): {err_msg}")
+        except Exception as err:
+            status_placeholder.empty()
+            st.error(f"Ошибка подключения: {err}")
 
 # Отрисовка результатов и редактирование
 if st.session_state.food_items is not None:
