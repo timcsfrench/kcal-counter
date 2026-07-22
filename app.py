@@ -1,5 +1,5 @@
 import streamlit as st
-from google import genai
+import google.generativeai as genai
 from PIL import Image
 
 # Настройка страницы
@@ -8,8 +8,11 @@ st.set_page_config(page_title="AI Калории", page_icon="🥗", layout="cen
 st.title("🥗 Сканер калорий")
 st.write("Сделай фото еды или загрузи из галереи, чтобы узнать калорийность и БЖУ.")
 
-# Подключение к Gemini через секреты Streamlit Cloud
-client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+# Подключение к Gemini через секреты Streamlit
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+except Exception as e:
+    st.error("Ошибка настройки API ключа. Проверьте Secrets в Streamlit.")
 
 # Загрузка фото
 uploaded_file = st.file_uploader("Загрузи фото тарелки", type=["jpg", "jpeg", "png"])
@@ -23,6 +26,9 @@ if uploaded_file is not None:
     if st.button("🔍 Рассчитать калории", type="primary"):
         with st.spinner("Идёт анализ..."):
             try:
+                # Используем стабильную модель 1.5-flash
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                
                 # Промпт для нейросети
                 prompt = """
                 Ты — профессиональный нутрициолог.
@@ -35,11 +41,8 @@ if uploaded_file is not None:
                 Будь максимально точен в оценке порций.
                 """
                 
-                # Актуальное имя модели для библиотеки google-genai
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[image, prompt]
-                )
+                # Запрос к нейросети
+                response = model.generate_content([prompt, image])
                 
                 st.success("Готово!")
                 st.markdown(response.text)
