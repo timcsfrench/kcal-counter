@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 import json
+import re
 
 # Настройка страницы
 st.set_page_config(page_title="AI Калории", page_icon="🥗", layout="centered")
@@ -25,11 +26,24 @@ if "confidence" not in st.session_state:
 if "hidden_notes" not in st.session_state:
     st.session_state.hidden_notes = ""
 
+# Функция для безопасного извлечения JSON
+def parse_json_safely(text):
+    # Убираем возможные блоки ```json ... ```
+    cleaned = re.sub(r'```json\s*', '', text)
+    cleaned = re.sub(r'```\s*', '', cleaned).strip()
+    
+    # Ищем фигурные скобки, если есть лишний текст
+    match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+    if match:
+        cleaned = match.group(0)
+        
+    return json.loads(cleaned)
+
 # Загрузка фото
 uploaded_file = st.file_uploader("Загрузите фото тарелки", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file)
+    image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Ваше блюдо", use_container_width=True)
     
     if st.button("🔍 Проанализировать фото", type="primary"):
@@ -39,11 +53,11 @@ if uploaded_file is not None:
                 "Ты — профессиональный нутрициолог. "
                 "Твоя задача — детально проанализировать фото еды, УЧИТЫВАЯ СКРЫТЫЕ ИНГРЕДИЕНТЫ "
                 "(например, масло для жарки, соусы, возможный добавленный сахар в напитках/кашах/десертах/соусах).\n"
-                "Выдай ответ СТРОГО в формате JSON без разметки markdown (```json). "
+                "Выдай ответ СТРОГО в формате валидного JSON.\n"
                 "Структура ответа:\n"
                 "{\n"
                 '  "confidence": 85,\n'
-                '  "hidden_notes": "Коротко опиши скрытые нюансы (например: если напиток/сырники/каша — укажи о возможном скрытом сахаре; если жареное — о масле; о соусах и т.д.)",\n'
+                '  "hidden_notes": "Опиши скрытые ингредиенты и возможные нюансы",\n'
                 '  "items": [\n'
                 '    {"name": "Яйцо жареное", "weight": 100, "calories_per_100g": 155, "protein_per_100g": 13, "fat_per_100g": 11, "carbs_per_100g": 1},\n'
                 '    {"name": "Масло для жарки (оценка)", "weight": 5, "calories_per_100g": 900, "protein_per_100g": 0, "fat_per_100g": 100, "carbs_per_100g": 0}\n'
@@ -52,7 +66,7 @@ if uploaded_file is not None:
                 "}"
             )
             
-            prompt = "Изучи фото еды. Определи продукты, учти скрытое масло/соусы/сахар, укажи свою уверенность в процентах и что могло остаться незамеченным."
+            prompt = "Изучи фото еды. Определи продукты, учти скрытое масло/соусы/сахар, укажи уверенность в процентах и что могло остаться незамеченным."
             
             priority_models = [
                 'models/gemini-1.5-pro',
@@ -62,18 +76,20 @@ if uploaded_file is not None:
             ]
             
             success = False
+            last_error = ""
             
             for model_name in priority_models:
                 try:
+                    # Включаем гарантированный режим вывода JSON
                     model = genai.GenerativeModel(
                         model_name=model_name,
-                        system_instruction=system_prompt
+                        system_instruction=system_prompt,
+                        generation_config={"response_mime_type": "application/json"}
                     )
                     response = model.generate_content([image, prompt])
                     
                     if response.text:
-                        clean_json = response.text.replace("```json", "").replace("```", "").strip()
-                        data = json.loads(clean_json)
+                        data = parse_json_safely(response.text)
                         
                         st.session_state.food_items = data.get("items", [])
                         st.session_state.confidence = data.get("confidence", 80)
@@ -81,11 +97,28 @@ if uploaded_file is not None:
                         st.session_state.advice = data.get("advice", "")
                         success = True
                         break
-                except Exception:
-                    continue
+                except Exception as err:
+                    # Попытка без принудительного response_mime_type, если модель его не поддерживает
+                    try:
+                        model = genai.GenerativeModel(
+                            model_name=model_name,
+                            system_instruction=system_prompt
+                        )
+                        response = model.generate_content([image, prompt])
+                        if response.text:
+                            data = parse_json_safely(response.text)
+                            st.session_state.food_items = data.get("items", [])
+                            st.session_state.confidence = data.get("confidence", 80)
+                            st.session_state.hidden_notes = data.get("hidden_notes", "")
+                            st.session_state.advice = data.get("advice", "")
+                            success = True
+                            break
+                    except Exception as inner_err:
+                        last_error = str(inner_err)
+                        continue
             
             if not success:
-                st.error("Не удалось разобрать блюдо. Попробуйте загрузить более четкое фото.")
+                st.error(f"Ошибка при анализе фото. Детали ошибки: {last_error}")
 
 # Если ингредиенты успешно получены из фото
 if st.session_state.food_items is not None:
@@ -107,12 +140,11 @@ if st.session_state.food_items is not None:
         with col_sug:
             sugar_spoons = st.number_input("Чайных ложек сахара (~5г ложка, 20 ккал):", min_value=0, max_value=10, value=0, step=1)
         with col_add_btn:
-            st.write("") # отступ
+            st.write("")
             st.write("")
             if st.button("Добавить сахар"):
                 if sugar_spoons > 0:
                     sugar_weight = sugar_spoons * 5
-                    # Проверяем, есть ли уже сахар в списке
                     sugar_exists = False
                     for item in st.session_state.food_items:
                         if "сахар" in item["name"].lower():
@@ -132,7 +164,7 @@ if st.session_state.food_items is not None:
                     st.rerun()
 
     st.subheader("📝 Редактирование ингредиентов")
-    st.caption("Вы можете изменить вес продуктов, удалить или вручную вписать любой ингредиент (например, 'Сахар' или 'Майонез'):")
+    st.caption("Вы можете изменить вес продуктов, удалить или вручную вписать любой ингредиент:")
 
     # Вывод редактируемой таблицы
     edited_df = st.data_editor(
