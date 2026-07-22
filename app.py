@@ -24,60 +24,62 @@ if uploaded_file is not None:
     if st.button("🔍 Рассчитать калории", type="primary"):
         with st.spinner("Идёт анализ..."):
             prompt = """
-            Ты — профессиональный нутрициолог.
-            Проанализируй фото еды и выдай ответ строго на русском языке в следующем формате:
-            1. Название блюда / продуктов на фото.
-            2. Примерный вес каждого ингредиента в граммах.
-            3. Итоговая калорийность (ккал).
-            4. Белки, Жиры, Углеводы (БЖУ) в граммах.
-            5. Короткий совет по пищевой ценности этого блюда.
-            Будь максимально точен в оценке порций.
+            Внимательно изучи изображение с едой. Напиши ответ СТРОГО НА РУССКОМ ЯЗЫКЕ.
+            Не повторяй этот промпт. Выдай только результат анализа в следующем виде:
+
+            1. Название блюда / продуктов на фото:
+            2. Примерный вес каждого ингредиента (в граммах):
+            3. Итоговая калорийность (ккал):
+            4. Белки, Жиры, Углеводы (БЖУ в граммах):
+            5. Краткий совет по пищевой ценности:
             """
             
-            # Приоритетные быстрые модели в порядке очереди
+            # В первую очередь пробуем модель, которая точно сработала
             priority_models = [
+                'models/gemma-4-26b-a4b-it',
                 'models/gemini-1.5-flash-latest',
                 'models/gemini-1.5-flash',
-                'models/gemini-2.0-flash-exp',
-                'models/gemini-1.5-pro'
+                'models/gemini-2.0-flash-exp'
             ]
             
             success = False
             
-            # 1. Сначала пробуем самые быстрые известные модели
+            # 1. Запрос к вашей проверенной модели
             for model_name in priority_models:
                 try:
                     model = genai.GenerativeModel(model_name)
                     response = model.generate_content([image, prompt])
-                    st.success("Готово!")
-                    st.markdown(response.text)
-                    success = True
-                    break
+                    
+                    if response.text:
+                        st.success("Готово!")
+                        st.markdown(response.text)
+                        success = True
+                        break
                 except Exception:
                     continue
             
-            # 2. Если ни одна из быстрых не ответила — ищем остаток среди всех доступных Gemini
+            # 2. Запасной перебор, если приоритетная модель недоступна
             if not success:
                 try:
-                    all_gemini = [
+                    all_models = [
                         m.name for m in genai.list_models() 
-                        if 'generateContent' in m.supported_generation_methods 
-                        and 'gemini' in m.name.lower()
+                        if 'generateContent' in m.supported_generation_methods
                     ]
-                    for model_name in all_gemini:
+                    for model_name in all_models:
                         if model_name in priority_models:
-                            continue # Пропускаем те, что уже проверяли
+                            continue
                         try:
                             model = genai.GenerativeModel(model_name)
                             response = model.generate_content([image, prompt])
-                            st.success("Готово!")
-                            st.markdown(response.text)
-                            success = True
-                            break
+                            if response.text:
+                                st.success("Готово!")
+                                st.markdown(response.text)
+                                success = True
+                                break
                         except Exception:
                             continue
                 except Exception:
                     pass
 
             if not success:
-                st.error("Не удалось подлючиться к модели. Попробуйте еще раз.")
+                st.error("Не удалось получить ответ от модели. Попробуйте еще раз.")
