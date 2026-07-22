@@ -35,10 +35,10 @@ if uploaded_file is not None:
             """
             
             try:
-                # Получаем все модели с поддержкой генерации
+                # Фильтруем только семейство Gemini (игнорируем Gemma)
                 all_models = [
                     m.name for m in genai.list_models() 
-                    if 'generateContent' in m.supported_generation_methods
+                    if 'generateContent' in m.supported_generation_methods and 'gemini' in m.name.lower()
                 ]
                 
                 success = False
@@ -46,18 +46,17 @@ if uploaded_file is not None:
                 for model_name in all_models:
                     try:
                         model = genai.GenerativeModel(model_name)
-                        response = model.generate_content([prompt, image])
+                        response = model.generate_content([image, prompt])
                         
-                        st.success(f"Анализ выполнен с помощью модели: `{model_name}`")
+                        st.success("Готово!")
                         st.markdown(response.text)
                         success = True
-                        break # Выходим из цикла при первом успешном ответе
-                    except Exception as inner_e:
-                        # Если конкретная модель выдает 404 или ошибку доступа — пропукаем её
+                        break
+                    except Exception:
                         continue
                 
                 if not success:
-                    st.error("Ни одна из доступных аккаунту моделей не смогла обработать запрос. Проверьте настройки API ключа.")
+                    st.error("Не удалось обработать изображение. Попробуйте еще раз.")
 
             except Exception as e:
-                st.error(f"Произошла ошибка при получении списка моделей: {e}")
+                st.error(f"Произошла ошибка при анализе: {e}")
