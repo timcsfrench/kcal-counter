@@ -23,37 +23,41 @@ if uploaded_file is not None:
     
     if st.button("🔍 Рассчитать калории", type="primary"):
         with st.spinner("Идёт анализ..."):
+            prompt = """
+            Ты — профессиональный нутрициолог.
+            Проанализируй фото еды и выдай ответ строго на русском языке в следующем формате:
+            1. Название блюда / продуктов на фото.
+            2. Примерный вес каждого ингредиента в граммах.
+            3. Итоговая калорийность (ккал).
+            4. Белки, Жиры, Углеводы (БЖУ) в граммах.
+            5. Короткий совет по пищевой ценности этого блюда.
+            Будь максимально точен в оценке порций.
+            """
+            
             try:
-                # Автоматически ищем модель, поддерживающую обработку изображений (generateContent)
-                available_models = [
+                # Получаем все модели с поддержкой генерации
+                all_models = [
                     m.name for m in genai.list_models() 
                     if 'generateContent' in m.supported_generation_methods
                 ]
                 
-                if not available_models:
-                    st.error("Для данного ключа не найдено ни одной доступной модели с поддержкой генерации.")
-                else:
-                    # Выбираем первую подходящую рабочую модель
-                    selected_model_name = available_models[0]
-                    st.info(f"Используем рабочую модель: `{selected_model_name}`")
-                    
-                    model = genai.GenerativeModel(selected_model_name)
-                    
-                    prompt = """
-                    Ты — профессиональный нутрициолог.
-                    Проанализируй фото еды и выдай ответ строго на русском языке в следующем формате:
-                    1. Название блюда / продуктов на фото.
-                    2. Примерный вес каждого ингредиента в граммах.
-                    3. Итоговая калорийность (ккал).
-                    4. Белки, Жиры, Углеводы (БЖУ) в граммах.
-                    5. Короткий совет по пищевой ценности этого блюда.
-                    Будь максимально точен в оценке порций.
-                    """
-                    
-                    response = model.generate_content([prompt, image])
-                    
-                    st.success("Готово!")
-                    st.markdown(response.text)
+                success = False
                 
+                for model_name in all_models:
+                    try:
+                        model = genai.GenerativeModel(model_name)
+                        response = model.generate_content([prompt, image])
+                        
+                        st.success(f"Анализ выполнен с помощью модели: `{model_name}`")
+                        st.markdown(response.text)
+                        success = True
+                        break # Выходим из цикла при первом успешном ответе
+                    except Exception as inner_e:
+                        # Если конкретная модель выдает 404 или ошибку доступа — пропукаем её
+                        continue
+                
+                if not success:
+                    st.error("Ни одна из доступных аккаунту моделей не смогла обработать запрос. Проверьте настройки API ключа.")
+
             except Exception as e:
-                st.error(f"Произошла ошибка при анализе: {e}")
+                st.error(f"Произошла ошибка при получении списка моделей: {e}")
