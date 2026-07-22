@@ -8,7 +8,7 @@ st.set_page_config(page_title="AI Калории", page_icon="🥗", layout="cen
 st.title("🥗 Сканер калорий")
 st.write("Сделай фото еды или загрузи из галереи, чтобы узнать калорийность и БЖУ.")
 
-# Подключение к Gemini
+# Подключение к Gemini через секреты Streamlit Cloud
 client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
 # Загрузка фото
@@ -17,7 +17,7 @@ uploaded_file = st.file_uploader("Загрузи фото тарелки", type=
 if uploaded_file is not None:
     # Показываем загруженное фото
     image = Image.open(uploaded_file)
-    st.image(image, caption="Твое блюдо", use_container_width=True)
+    st.image(image, caption="Ваше блюдо", use_container_width=True)
     
     # Кнопка для запуска анализа
     if st.button("🔍 Рассчитать калории", type="primary"):
@@ -35,9 +35,9 @@ if uploaded_file is not None:
                 Будь максимально точен в оценке порций.
                 """
                 
-                # Актуальная модель
+                # Стабильная модель 1.5-flash
                 response = client.models.generate_content(
-                    model="gemini-2.0-flash",
+                    model="gemini-1.5-flash",
                     contents=[image, prompt]
                 )
                 
