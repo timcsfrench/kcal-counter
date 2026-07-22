@@ -35,9 +35,9 @@ if uploaded_file is not None:
                 Будь максимально точен в оценке порций.
                 """
                 
-                # Полное имя модели для совместимости с v1beta
+                # Актуальное имя модели для библиотеки google-genai
                 response = client.models.generate_content(
-                    model="gemini-1.5-flash-latest",
+                    model="gemini-2.5-flash",
                     contents=[image, prompt]
                 )
                 
