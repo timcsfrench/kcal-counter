@@ -4,6 +4,7 @@ from google.genai import types
 from PIL import Image
 import json
 import re
+import time
 
 # Настройка страницы
 st.set_page_config(page_title="AI Калории", page_icon="🥗", layout="centered")
@@ -11,7 +12,7 @@ st.set_page_config(page_title="AI Калории", page_icon="🥗", layout="cen
 st.title("🥗 Сканер калорий")
 st.write("Загрузи фото блюда, проверь состав, учет скрытого сахара/масла и при необходимости скорректируй вес.")
 
-# Подключение к Gemini через новый SDK
+# Подключение к Gemini через официальный SDK
 try:
     client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 except Exception as e:
@@ -44,16 +45,16 @@ if uploaded_file is not None:
     st.image(image, caption="Ваше блюдо", use_container_width=True)
     
     if st.button("🔍 Проанализировать фото", type="primary"):
-        with st.spinner("Gemini анализирует окрошку/блюдо и скрытые калории..."):
+        with st.spinner("Gemini 2.0 Flash проводит глубокий анализ блюда..."):
             
             system_prompt = (
-                "Ты — профессиональный нутрициолог. "
+                "Ты — высококлассный эксперт-нутрициолог. "
                 "Твоя задача — детально проанализировать фото еды, УЧИТЫВАЯ СКРЫТЫЕ ИНГРЕДИЕНТЫ "
-                "(например, сметана/майонез, масло для жарки, заправка, возможный добавленный сахар).\n"
+                "(например, сметана/майонез, масло для жарки, заправка, возможный добавленный сахар в кашах/напитках/сырниках).\n"
                 "Выдай ответ СТРОГО в формате валидного JSON.\n"
                 "Структура ответа:\n"
                 "{\n"
-                '  "confidence": 85,\n'
+                '  "confidence": 90,\n'
                 '  "hidden_notes": "Опиши скрытые ингредиенты и возможные нюансы",\n'
                 '  "items": [\n'
                 '    {"name": "Название продукта", "weight": 100, "calories_per_100g": 155, "protein_per_100g": 13, "fat_per_100g": 11, "carbs_per_100g": 1}\n'
@@ -64,20 +65,16 @@ if uploaded_file is not None:
             
             prompt = "Изучи фото еды. Определи продукты, учти скрытые жиры/соусы/сахар, укажи уверенность в процентах и что могло остаться незамеченным."
             
-            # В новом SDK используются актуальные имена моделей
-            models_to_try = [
-                'gemini-1.5-pro',
-                'gemini-1.5-flash',
-                'gemini-2.0-flash'
-            ]
+            # Флагманская модель
+            target_model = "gemini-2.0-flash"
             
             success = False
-            last_error = ""
+            max_retries = 3
             
-            for model_id in models_to_try:
+            for attempt in range(max_retries):
                 try:
                     response = client.models.generate_content(
-                        model=model_id,
+                        model=target_model,
                         contents=[image, prompt],
                         config=types.GenerateContentConfig(
                             system_instruction=system_prompt,
@@ -93,12 +90,16 @@ if uploaded_file is not None:
                         st.session_state.advice = data.get("advice", "")
                         success = True
                         break
+                        
                 except Exception as err:
-                    last_error = str(err)
-                    continue
-            
-            if not success:
-                st.error(f"Ошибка при подключении к Gemini: {last_error}")
+                    err_msg = str(err)
+                    if ("429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg) and attempt < max_retries - 1:
+                        # Если превышен лимит частых запросов, ждем 10 секунд и пробуем снова
+                        time.sleep(10)
+                        continue
+                    else:
+                        st.error(f"Ошибка при подключении к Gemini: {err_msg}")
+                        break
 
 # Отрисовка результатов и редактирование
 if st.session_state.food_items is not None:
