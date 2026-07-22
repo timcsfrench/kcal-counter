@@ -45,61 +45,68 @@ if uploaded_file is not None:
     st.image(image, caption="Ваше блюдо", use_container_width=True)
     
     if st.button("🔍 Проанализировать фото", type="primary"):
-        with st.spinner("Gemini 2.0 Flash проводит глубокий анализ блюда..."):
-            
-            system_prompt = (
-                "Ты — высококлассный эксперт-нутрициолог. "
-                "Твоя задача — детально проанализировать фото еды, УЧИТЫВАЯ СКРЫТЫЕ ИНГРЕДИЕНТЫ "
-                "(например, сметана/майонез, масло для жарки, заправка, возможный добавленный сахар в кашах/напитках/сырниках).\n"
-                "Выдай ответ СТРОГО в формате валидного JSON.\n"
-                "Структура ответа:\n"
-                "{\n"
-                '  "confidence": 90,\n'
-                '  "hidden_notes": "Опиши скрытые ингредиенты и возможные нюансы",\n'
-                '  "items": [\n'
-                '    {"name": "Название продукта", "weight": 100, "calories_per_100g": 155, "protein_per_100g": 13, "fat_per_100g": 11, "carbs_per_100g": 1}\n'
-                "  ],\n"
-                '  "advice": "Короткий совет по питательной ценности на русском"\n'
-                "}"
-            )
-            
-            prompt = "Изучи фото еды. Определи продукты, учти скрытые жиры/соусы/сахар, укажи уверенность в процентах и что могло остаться незамеченным."
-            
-            # Флагманская модель
-            target_model = "gemini-2.0-flash"
-            
-            success = False
-            max_retries = 3
-            
-            for attempt in range(max_retries):
-                try:
-                    response = client.models.generate_content(
-                        model=target_model,
-                        contents=[image, prompt],
-                        config=types.GenerateContentConfig(
-                            system_instruction=system_prompt,
-                            response_mime_type="application/json"
-                        )
+        status_placeholder = st.empty()
+        status_placeholder.info("⏳ Анализируем фото с помощью Gemini...")
+        
+        system_prompt = (
+            "Ты — высококлассный эксперт-нутрициолог. "
+            "Твоя задача — детально проанализировать фото еды, УЧИТЫВАЯ СКРЫТЫЕ ИНГРЕДИЕНТЫ "
+            "(например, сметана/майонез, масло для жарки, заправка, возможный добавленный сахар в кашах/напитках/сырниках).\n"
+            "Выдай ответ СТРОГО в формате валидного JSON.\n"
+            "Структура ответа:\n"
+            "{\n"
+            '  "confidence": 90,\n'
+            '  "hidden_notes": "Опиши скрытые ингредиенты и возможные нюансы",\n'
+            '  "items": [\n'
+            '    {"name": "Название продукта", "weight": 100, "calories_per_100g": 155, "protein_per_100g": 13, "fat_per_100g": 11, "carbs_per_100g": 1}\n'
+            "  ],\n"
+            '  "advice": "Короткий совет по питательной ценности на русском"\n'
+            "}"
+        )
+        
+        prompt = "Изучи фото еды. Определи продукты, учти скрытые жиры/соусы/сахар, укажи уверенность в процентах и что могло остаться незамеченным."
+        
+        # Рабочая и самая стабильная модель для бесплатного тарифа
+        target_model = "gemini-1.5-flash"
+        
+        success = False
+        max_retries = 2
+        
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=target_model,
+                    contents=[image, prompt],
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        response_mime_type="application/json"
                     )
+                )
+                
+                if response.text:
+                    data = parse_json_safely(response.text)
+                    st.session_state.food_items = data.get("items", [])
+                    st.session_state.confidence = data.get("confidence", 80)
+                    st.session_state.hidden_notes = data.get("hidden_notes", "")
+                    st.session_state.advice = data.get("advice", "")
+                    success = True
+                    status_placeholder.empty()
+                    break
                     
-                    if response.text:
-                        data = parse_json_safely(response.text)
-                        st.session_state.food_items = data.get("items", [])
-                        st.session_state.confidence = data.get("confidence", 80)
-                        st.session_state.hidden_notes = data.get("hidden_notes", "")
-                        st.session_state.advice = data.get("advice", "")
-                        success = True
-                        break
-                        
-                except Exception as err:
-                    err_msg = str(err)
-                    if ("429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg) and attempt < max_retries - 1:
-                        # Если превышен лимит частых запросов, ждем 10 секунд и пробуем снова
-                        time.sleep(10)
-                        continue
+            except Exception as err:
+                err_msg = str(err)
+                if ("429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg) and attempt < max_retries - 1:
+                    status_placeholder.warning("⏳ Лимит частых запросов к бесплатной модели. Ждем 30 секунд для сброса лимита Google...")
+                    time.sleep(30)
+                    status_placeholder.info("🔄 Повторяем запрос к Gemini...")
+                    continue
+                else:
+                    status_placeholder.empty()
+                    if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                        st.warning("⚠️ Бесплатный дневной лимит API исчерпан. Подождите 1 минуту и нажмите кнопку снова.")
                     else:
                         st.error(f"Ошибка при подключении к Gemini: {err_msg}")
-                        break
+                    break
 
 # Отрисовка результатов и редактирование
 if st.session_state.food_items is not None:
