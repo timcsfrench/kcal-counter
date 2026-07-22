@@ -23,9 +23,16 @@ if uploaded_file is not None:
     
     if st.button("🔍 Рассчитать калории", type="primary"):
         with st.spinner("Идёт анализ..."):
+            
+            # Строгое системное указание для модели
+            system_prompt = (
+                "Ты — профессиональный нутрициолог. "
+                "Запрещено выводить мысленные рассуждения, черновики или текст на английском языке. "
+                "Выдай ТОЛЬКО итоговый результат анализа строго на русском языке."
+            )
+            
             prompt = """
-            Внимательно изучи изображение с едой. Напиши ответ СТРОГО НА РУССКОМ ЯЗЫКЕ.
-            Не повторяй этот промпт. Выдай только результат анализа в следующем виде:
+            Проанализируй фото еды и ответь строго в следующей структуре:
 
             1. Название блюда / продуктов на фото:
             2. Примерный вес каждого ингредиента (в граммах):
@@ -34,7 +41,6 @@ if uploaded_file is not None:
             5. Краткий совет по пищевой ценности:
             """
             
-            # В первую очередь пробуем модель, которая точно сработала
             priority_models = [
                 'models/gemma-4-26b-a4b-it',
                 'models/gemini-1.5-flash-latest',
@@ -44,10 +50,13 @@ if uploaded_file is not None:
             
             success = False
             
-            # 1. Запрос к вашей проверенной модели
             for model_name in priority_models:
                 try:
-                    model = genai.GenerativeModel(model_name)
+                    # Передаем системную инструкцию
+                    model = genai.GenerativeModel(
+                        model_name=model_name,
+                        system_instruction=system_prompt
+                    )
                     response = model.generate_content([image, prompt])
                     
                     if response.text:
@@ -56,30 +65,17 @@ if uploaded_file is not None:
                         success = True
                         break
                 except Exception:
-                    continue
+                    # Если модель не поддерживает system_instruction, пробуем без нее
+                    try:
+                        model = genai.GenerativeModel(model_name)
+                        response = model.generate_content([image, prompt])
+                        if response.text:
+                            st.success("Готово!")
+                            st.markdown(response.text)
+                            success = True
+                            break
+                    except Exception:
+                        continue
             
-            # 2. Запасной перебор, если приоритетная модель недоступна
-            if not success:
-                try:
-                    all_models = [
-                        m.name for m in genai.list_models() 
-                        if 'generateContent' in m.supported_generation_methods
-                    ]
-                    for model_name in all_models:
-                        if model_name in priority_models:
-                            continue
-                        try:
-                            model = genai.GenerativeModel(model_name)
-                            response = model.generate_content([image, prompt])
-                            if response.text:
-                                st.success("Готово!")
-                                st.markdown(response.text)
-                                success = True
-                                break
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
-
             if not success:
                 st.error("Не удалось получить ответ от модели. Попробуйте еще раз.")
