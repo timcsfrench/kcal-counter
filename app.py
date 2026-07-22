@@ -1,10 +1,10 @@
 import streamlit as st
-from google import genai
-from google.genai import types
-from PIL import Image
+import requests
 import json
+import base64
+from PIL import Image
+import io
 import re
-import time
 
 # Настройка страницы
 st.set_page_config(page_title="AI Калории", page_icon="🥗", layout="centered")
@@ -12,11 +12,10 @@ st.set_page_config(page_title="AI Калории", page_icon="🥗", layout="cen
 st.title("🥗 Сканер калорий")
 st.write("Загрузи фото блюда, проверь состав, учет скрытого сахара/масла и при необходимости скорректируй вес.")
 
-# Инициализация клиента Google GenAI
-try:
-    client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-except Exception as e:
-    st.error("Ошибка настройки API ключа. Проверьте Secrets в Streamlit.")
+# Проверка ключа
+api_key = st.secrets.get("GEMINI_API_KEY", "")
+if not api_key:
+    st.error("Ошибка: GEMINI_API_KEY не найден в Streamlit Secrets!")
 
 # Инициализация состояния
 if "food_items" not in st.session_state:
@@ -28,7 +27,13 @@ if "confidence" not in st.session_state:
 if "hidden_notes" not in st.session_state:
     st.session_state.hidden_notes = ""
 
-# Функция для безопасного извлечения JSON
+# Функция для конвертации картинки в base64
+def image_to_base64(image):
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+# Безопасный парсинг JSON
 def parse_json_safely(text):
     cleaned = re.sub(r'```json\s*', '', text)
     cleaned = re.sub(r'```\s*', '', cleaned).strip()
@@ -46,9 +51,12 @@ if uploaded_file is not None:
     
     if st.button("🔍 Проанализировать фото", type="primary"):
         status_placeholder = st.empty()
-        status_placeholder.info("⏳ Анализируем фото...")
+        status_placeholder.info("⏳ Анализируем фото с помощью Gemini...")
         
-        system_prompt = (
+        # Переводим фото в base64
+        base64_image = image_to_base64(image)
+        
+        system_instruction = (
             "Ты — высококлассный эксперт-нутрициолог. "
             "Твоя задача — детально проанализировать фото еды, УЧИТЫВАЯ СКРЫТЫЕ ИНГРЕДИЕНТЫ "
             "(например, сметана/майонез, масло для жарки, заправка, возможный добавленный сахар в кашах/напитках/сырниках).\n"
@@ -64,48 +72,71 @@ if uploaded_file is not None:
             "}"
         )
         
-        prompt = "Изучи фото еды. Определи продукты, учти скрытые жиры/соусы/сахар, укажи уверенность в процентах и что могло остаться незамеченным."
+        # REST Payload
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": system_instruction}]
+            },
+            "contents": [
+                {
+                    "parts": [
+                        {"text": "Изучи фото еды. Определи продукты, учти скрытые жиры/соусы/сахар, укажи уверенность в процентах."},
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": base64_image
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "response_mime_type": "application/json"
+            }
+        }
         
-        # Перебираем поддерживаемые современные идентификаторы моделей SDK
+        # Эндпоинты моделей (по списку приоритета)
         models_to_try = [
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash-latest"
+            "gemini-1.5-flash",
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-pro"
         ]
         
         success = False
         last_error = ""
         
-        for model_id in models_to_try:
+        for model in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            headers = {"Content-Type": "application/json"}
+            
             try:
-                response = client.models.generate_content(
-                    model=model_id,
-                    contents=[image, prompt],
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        response_mime_type="application/json"
-                    )
-                )
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                res_data = response.json()
                 
-                if response.text:
-                    data = parse_json_safely(response.text)
+                if response.status_code == 200 and "candidates" in res_data:
+                    raw_text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                    data = parse_json_safely(raw_text)
+                    
                     st.session_state.food_items = data.get("items", [])
                     st.session_state.confidence = data.get("confidence", 80)
                     st.session_state.hidden_notes = data.get("hidden_notes", "")
                     st.session_state.advice = data.get("advice", "")
+                    
                     success = True
                     status_placeholder.empty()
                     break
+                else:
+                    last_error = res_data.get("error", {}).get("message", response.text)
             except Exception as err:
                 last_error = str(err)
                 continue
                 
         if not success:
             status_placeholder.empty()
-            if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error:
-                st.warning("⏳ Лимит запросов превышен. Подождите 30–60 секунд и повторите попытку.")
+            if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error or "quota" in last_error.lower():
+                st.warning("⏳ Бесплатный лимит запросов исчерпан. Подождите 1 минуту и попробуйте снова.")
             else:
-                st.error(f"Ошибка при подключении к Gemini: {last_error}")
+                st.error(f"Ошибка API: {last_error}")
 
 # Отрисовка результатов и редактирование
 if st.session_state.food_items is not None:
