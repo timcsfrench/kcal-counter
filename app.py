@@ -35,9 +35,9 @@ if uploaded_file is not None:
                 Будь максимально точен в оценке порций.
                 """
                 
-                # Стабильная модель 1.5-flash
+                # Полное имя модели для совместимости с v1beta
                 response = client.models.generate_content(
-                    model="gemini-1.5-flash",
+                    model="gemini-1.5-flash-latest",
                     contents=[image, prompt]
                 )
                 
